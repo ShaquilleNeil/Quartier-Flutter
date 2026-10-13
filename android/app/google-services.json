@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "390078272406",
+    "project_id": "quartier-36ce6",
+    "storage_bucket": "quartier-36ce6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:390078272406:android:2ab289dfa244e2893243b7",
+        "android_client_info": {
+          "package_name": "com.IOSGROUP.quartier"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC6P73x1bXM62A5D0zQ8xlnE8rOVuFa0Bc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

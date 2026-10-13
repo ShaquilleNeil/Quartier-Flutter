@@ -1,0 +1,101 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+
+    function listing(id) {
+      return get(/databases/$(database)/documents/listings/$(id)).data;
+    }
+    function listingExists(id) {
+      return id is string && id != '' &&
+        exists(/databases/$(database)/documents/listings/$(id));
+    }
+    // The signed-in user is the landlord of listing `id`.
+    function ownsListing(id) {
+      return signedIn() && listingExists(id) && listing(id).landLordId == request.auth.uid;
+    }
+    // The signed-in user is the tenant currently renting listing `id`.
+    function rentsListing(id) {
+      return signedIn() && listingExists(id) && listing(id).tenantId == request.auth.uid;
+    }
+
+    // A landlord assigning or removing a tenant may change only the tenancy
+    // fields on the tenant's profile, and only for one of their own listings.
+    // iOS AssignTenantSection writes `rentedListingId`; FirebaseManager and
+    // Flutter write `apartmentId`.
+    function landlordSetsTenancy() {
+      let before = resource.data;
+      let after = request.resource.data;
+      return after.diff(before).affectedKeys()
+               .hasOnly(['isRenting', 'apartmentId', 'rentedListingId']) &&
+        (ownsListing(after.get('apartmentId', '')) ||
+         ownsListing(before.get('apartmentId', '')) ||
+         ownsListing(after.get('rentedListingId', '')) ||
+         ownsListing(before.get('rentedListingId', '')));
+    }
+
+    match /users/{uid} {
+      // any signed-in user can read profiles (landlord lookup, tenant list)
+      allow read: if signedIn();
+      allow create, delete: if isOwner(uid);
+      allow update: if isOwner(uid) || landlordSetsTenancy();
+
+      // private data stays owner-only
+      match /{sub}/{docId} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    match /listings/{id} {
+      // The apps store the owner as `landLordId` (capital L).
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.landLordId == request.auth.uid;
+      allow update, delete: if signedIn() && resource.data.landLordId == request.auth.uid;
+
+      // The tenant renting the listing files requests; the landlord resolves them.
+      match /maintenanceRequests/{requestId} {
+        allow read: if ownsListing(id) || rentsListing(id);
+        allow create: if rentsListing(id) &&
+          request.resource.data.tenantId == request.auth.uid;
+        allow update: if ownsListing(id) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+      }
+    }
+
+    // Lease records, `documents/{listingId}_lease`, written by the landlord.
+    match /documents/{docId} {
+      // `resource == null` lets the apps check whether a lease exists yet.
+      allow read: if signedIn() &&
+        (resource == null ||
+         ownsListing(resource.data.listingId) ||
+         rentsListing(resource.data.listingId));
+      allow create, update: if ownsListing(request.resource.data.listingId) &&
+        request.resource.data.landlordId == request.auth.uid;
+      allow delete: if ownsListing(resource.data.listingId);
+    }
+
+    match /conversations/{id} {
+      allow read: if signedIn() &&
+        (resource.data.landlordId == request.auth.uid ||
+         resource.data.tenantId == request.auth.uid);
+      allow create: if signedIn() &&
+        (request.resource.data.landlordId == request.auth.uid ||
+         request.resource.data.tenantId == request.auth.uid);
+      allow update, delete: if signedIn() &&
+        (resource.data.landlordId == request.auth.uid ||
+         resource.data.tenantId == request.auth.uid);
+    }
+
+    match /schedules/{id} {
+      allow read, write: if signedIn() &&
+        (resource.data.landlordId == request.auth.uid ||
+         resource.data.tenantId == request.auth.uid);
+      allow create: if signedIn() &&
+        (request.resource.data.landlordId == request.auth.uid ||
+         request.resource.data.tenantId == request.auth.uid);
+    }
+  }
+}
